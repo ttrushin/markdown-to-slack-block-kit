@@ -1,6 +1,6 @@
 import * as slack from '../src/slack';
-import {parseBlocks} from '../src/parser/internal';
-import {marked} from 'marked';
+import { parseBlocks } from '../src/parser/internal';
+import { marked } from 'marked';
 
 describe('parser', () => {
   it('should parse basic markdown', () => {
@@ -43,7 +43,7 @@ describe('parser', () => {
         .trim()
         .split('\n')
         .map(s => s.trim())
-        .join('\n')
+        .join('\n'),
     );
     const actual = parseBlocks(tokens);
 
@@ -51,6 +51,46 @@ describe('parser', () => {
       slack.section('1. a\n2. b'),
       slack.section('• c\n• d'),
       slack.section('• e\n• f'),
+    ];
+
+    expect(actual).toStrictEqual(expected);
+  });
+
+  it('should parse nested lists with mixed content', () => {
+    const tokens = marked.lexer(
+      `
+1. **First item** with description:
+   - Nested bullet point one
+   - Nested bullet point two
+
+2. **Second item** with more details:
+   - Another nested item
+   - Yet another nested item
+   - Final nested item
+
+- Top level unordered item
+  - Nested under unordered
+  - Another nested item
+    `.trim()
+    );
+
+    const actual = parseBlocks(tokens);
+
+    const expected = [
+      slack.section(
+        '1. *First item* with description:\n' +
+        '  • Nested bullet point one\n' +
+        '  • Nested bullet point two\n' +
+        '2. *Second item* with more details:\n' +
+        '  • Another nested item\n' +
+        '  • Yet another nested item\n' +
+        '  • Final nested item'
+      ),
+      slack.section(
+        '• Top level unordered item\n' +
+        '  • Nested under unordered\n' +
+        '  • Another nested item'
+      )
     ];
 
     expect(actual).toStrictEqual(expected);

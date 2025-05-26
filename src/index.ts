@@ -22,7 +22,7 @@ import {marked} from 'marked';
  */
 export async function markdownToBlocks(
   body: string,
-  options: ParsingOptions = {}
+  options: ParsingOptions = {},
 ): Promise<KnownBlock[]> {
   // Slack only wants &, <, and > escaped
   // https://api.slack.com/reference/surfaces/formatting#escaping

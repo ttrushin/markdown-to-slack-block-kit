@@ -242,6 +242,28 @@ function parseParagraph(element: Tokens.Paragraph): KnownBlock[] {
   );
 }
 
+function parseParagraphToRichText(element: Tokens.Paragraph): RichTextBlock {
+  const richTextElements: (RichTextText | RichTextLink)[] = [];
+
+  element.tokens.forEach(token => {
+    if (token.type !== 'image') {
+      const richElement = parsePhrasingContentToRichText(
+        token as Exclude<PhrasingToken, Tokens.Image>,
+      );
+      richTextElements.push(richElement);
+    }
+    // Note: Images in paragraphs are handled separately as ImageBlocks
+    // In rich text context, we skip them since they need to be separate blocks
+  });
+
+  return richText([
+    {
+      type: 'rich_text_section',
+      elements: richTextElements,
+    } as RichTextSection,
+  ]);
+}
+
 function parseHeading(element: Tokens.Heading): HeaderBlock {
   return header(
     element.tokens
@@ -257,9 +279,10 @@ function parseCode(element: Tokens.Code): SectionBlock {
 function parseList(
   element: Tokens.List,
   options: ListOptions = {},
+  globalUseRichText = false,
 ): KnownBlock {
-  // Use rich text lists if enabled
-  if (options.useRichText) {
+  // Use rich text lists if enabled globally or specifically for lists
+  if (globalUseRichText || options.useRichText) {
     return parseListToRichText(element, options, {
       ordered: element.ordered,
       indent: 0,
@@ -290,7 +313,11 @@ function parseList(
         }
       } else if (token.type === 'list') {
         // Handle nested lists recursively
-        const nestedListBlock = parseList(token as Tokens.List, options);
+        const nestedListBlock = parseList(
+          token as Tokens.List,
+          options,
+          globalUseRichText,
+        );
         if (isSectionBlock(nestedListBlock) && nestedListBlock.text?.text) {
           // Indent the nested list content
           const indentedList = nestedListBlock.text.text
@@ -514,7 +541,69 @@ function parseToken(token: Token, options: ParsingOptions): KnownBlock[] {
       return [parseHeading(token as Tokens.Heading)];
 
     case 'paragraph':
-      return parseParagraph(token as Tokens.Paragraph);
+      if (options.useRichText) {
+        // Handle images separately in rich text mode
+        const paragraphToken = token as Tokens.Paragraph;
+        const hasImages = paragraphToken.tokens.some(t => t.type === 'image');
+
+        if (hasImages) {
+          // If paragraph contains images, split into rich text sections and image blocks
+          const blocks: KnownBlock[] = [];
+          let currentRichTextElements: (RichTextText | RichTextLink)[] = [];
+
+          paragraphToken.tokens.forEach(childToken => {
+            if (childToken.type === 'image') {
+              // Add any accumulated rich text elements as a rich text block
+              if (currentRichTextElements.length > 0) {
+                blocks.push(
+                  richText([
+                    {
+                      type: 'rich_text_section',
+                      elements: currentRichTextElements,
+                    } as RichTextSection,
+                  ]),
+                );
+                currentRichTextElements = [];
+              }
+
+              // Add the image as a separate block
+              const imageToken = childToken as Tokens.Image;
+              blocks.push(
+                image(
+                  imageToken.href,
+                  imageToken.text || imageToken.title || imageToken.href,
+                  imageToken.title ?? undefined,
+                ),
+              );
+            } else {
+              // Add non-image tokens to rich text elements
+              const richElement = parsePhrasingContentToRichText(
+                childToken as Exclude<PhrasingToken, Tokens.Image>,
+              );
+              currentRichTextElements.push(richElement);
+            }
+          });
+
+          // Add any remaining rich text elements
+          if (currentRichTextElements.length > 0) {
+            blocks.push(
+              richText([
+                {
+                  type: 'rich_text_section',
+                  elements: currentRichTextElements,
+                } as RichTextSection,
+              ]),
+            );
+          }
+
+          return blocks;
+        } else {
+          // No images, use simple rich text parsing
+          return [parseParagraphToRichText(paragraphToken)];
+        }
+      } else {
+        return parseParagraph(token as Tokens.Paragraph);
+      }
 
     case 'code':
       return [parseCode(token as Tokens.Code)];
@@ -523,7 +612,9 @@ function parseToken(token: Token, options: ParsingOptions): KnownBlock[] {
       return parseBlockquote(token as Tokens.Blockquote);
 
     case 'list':
-      return [parseList(token as Tokens.List, options.lists)];
+      return [
+        parseList(token as Tokens.List, options.lists, options.useRichText),
+      ];
 
     case 'table':
       return [parseTable(token as Tokens.Table)];

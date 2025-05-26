@@ -1,6 +1,8 @@
 export interface ParsingOptions {
   // Configure how lists are displayed
   lists?: ListOptions;
+  // Enable rich text rendering for all content instead of mrkdwn sections
+  useRichText?: boolean;
 }
 
 export interface ListOptions {

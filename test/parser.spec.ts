@@ -1,6 +1,6 @@
 import * as slack from '../src/slack';
-import { parseBlocks } from '../src/parser/internal';
-import { marked } from 'marked';
+import {parseBlocks} from '../src/parser/internal';
+import {marked} from 'marked';
 
 describe('parser', () => {
   it('should parse basic markdown', () => {
@@ -71,7 +71,7 @@ describe('parser', () => {
 - Top level unordered item
   - Nested under unordered
   - Another nested item
-    `.trim()
+    `.trim(),
     );
 
     const actual = parseBlocks(tokens);
@@ -79,18 +79,18 @@ describe('parser', () => {
     const expected = [
       slack.section(
         '1. *First item* with description:\n' +
-        '  • Nested bullet point one\n' +
-        '  • Nested bullet point two\n' +
-        '2. *Second item* with more details:\n' +
-        '  • Another nested item\n' +
-        '  • Yet another nested item\n' +
-        '  • Final nested item'
+          '  • Nested bullet point one\n' +
+          '  • Nested bullet point two\n' +
+          '2. *Second item* with more details:\n' +
+          '  • Another nested item\n' +
+          '  • Yet another nested item\n' +
+          '  • Final nested item',
       ),
       slack.section(
         '• Top level unordered item\n' +
-        '  • Nested under unordered\n' +
-        '  • Another nested item'
-      )
+          '  • Nested under unordered\n' +
+          '  • Another nested item',
+      ),
     ];
 
     expect(actual).toStrictEqual(expected);

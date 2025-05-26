@@ -4,11 +4,16 @@ import {
   ImageBlock,
   KnownBlock,
   SectionBlock,
+  RichTextBlock,
+  RichTextList,
+  RichTextSection,
+  RichTextText,
+  RichTextLink,
 } from '@slack/types';
-import { ListOptions, ParsingOptions } from '../types';
-import { section, divider, header, image } from '../slack';
-import { Token, Tokens, TokensList } from 'marked';
-import { XMLParser } from 'fast-xml-parser';
+import {ListOptions, ParsingOptions} from '../types';
+import {section, divider, header, image, richText} from '../slack';
+import {Token, Tokens, TokensList} from 'marked';
+import {XMLParser} from 'fast-xml-parser';
 
 type PhrasingToken =
   | Tokens.Link
@@ -91,7 +96,13 @@ function addMrkdwn(
 ) {
   const last = accumulator[accumulator.length - 1];
 
-  if (last && isSectionBlock(last) && last.text && last.text.text && last.text.text.length + content.length <= 3000) {
+  if (
+    last &&
+    isSectionBlock(last) &&
+    last.text &&
+    last.text.text &&
+    last.text.text.length + content.length <= 3000
+  ) {
     last.text.text += content;
   } else {
     accumulator.push(section(content));
@@ -107,6 +118,100 @@ function parsePhrasingContentToStrings(
   } else {
     const text = parseMrkdwn(element);
     accumulator.push(text);
+  }
+}
+
+function parsePhrasingContentToRichText(
+  element: Exclude<PhrasingToken, Tokens.Image>,
+): RichTextText | RichTextLink {
+  switch (element.type) {
+    case 'link': {
+      // For links, we'll create a rich text link element
+      const text = element.tokens
+        .map(child => parsePhrasingContentToRichText(child as typeof element))
+        .map(rt => (rt.type === 'link' ? rt.text || rt.url : rt.text))
+        .join('');
+      return {
+        type: 'link',
+        text: text,
+        url: element.href,
+      } as RichTextLink;
+    }
+
+    case 'em': {
+      const text = element.tokens
+        .map(child =>
+          parsePhrasingContentToRichText(
+            child as Exclude<PhrasingToken, Tokens.Image>,
+          ),
+        )
+        .map(rt => (rt.type === 'link' ? rt.text || rt.url : rt.text))
+        .join('');
+      return {
+        type: 'text',
+        text: text,
+        style: {
+          italic: true,
+        },
+      } as RichTextText;
+    }
+
+    case 'strong': {
+      const text = element.tokens
+        .map(child =>
+          parsePhrasingContentToRichText(
+            child as Exclude<PhrasingToken, Tokens.Image>,
+          ),
+        )
+        .map(rt => (rt.type === 'link' ? rt.text || rt.url : rt.text))
+        .join('');
+      return {
+        type: 'text',
+        text: text,
+        style: {
+          bold: true,
+        },
+      } as RichTextText;
+    }
+
+    case 'del': {
+      const text = element.tokens
+        .map(child =>
+          parsePhrasingContentToRichText(
+            child as Exclude<PhrasingToken, Tokens.Image>,
+          ),
+        )
+        .map(rt => (rt.type === 'link' ? rt.text || rt.url : rt.text))
+        .join('');
+      return {
+        type: 'text',
+        text: text,
+        style: {
+          strike: true,
+        },
+      } as RichTextText;
+    }
+
+    case 'codespan':
+      return {
+        type: 'text',
+        text: element.text,
+        style: {
+          code: true,
+        },
+      } as RichTextText;
+
+    case 'text':
+      return {
+        type: 'text',
+        text: element.text,
+      } as RichTextText;
+
+    default:
+      return {
+        type: 'text',
+        text: '',
+      } as RichTextText;
   }
 }
 
@@ -152,7 +257,16 @@ function parseCode(element: Tokens.Code): SectionBlock {
 function parseList(
   element: Tokens.List,
   options: ListOptions = {},
-): SectionBlock {
+): KnownBlock {
+  // Use rich text lists if enabled
+  if (options.useRichText) {
+    return parseListToRichText(element, options, {
+      ordered: element.ordered,
+      indent: 0,
+    });
+  }
+
+  // Fall back to the original implementation
   let index = 0;
   const contents = element.items.map(item => {
     const parts: string[] = [];
@@ -177,7 +291,7 @@ function parseList(
       } else if (token.type === 'list') {
         // Handle nested lists recursively
         const nestedListBlock = parseList(token as Tokens.List, options);
-        if (nestedListBlock.text?.text) {
+        if (isSectionBlock(nestedListBlock) && nestedListBlock.text?.text) {
           // Indent the nested list content
           const indentedList = nestedListBlock.text.text
             .split('\n')
@@ -211,6 +325,115 @@ function parseList(
   });
 
   return section(contents.join('\n'));
+}
+
+interface ListItemContext {
+  ordered: boolean;
+  indent: number;
+  offset?: number;
+}
+
+function parseListToRichText(
+  element: Tokens.List,
+  options: ListOptions = {},
+  context: ListItemContext = {ordered: element.ordered, indent: 0},
+): RichTextBlock {
+  const elements: RichTextList[] = [];
+
+  element.items.forEach(item => {
+    // Process all tokens in the list item to build rich text elements
+    const richTextElements: (RichTextText | RichTextLink)[] = [];
+
+    item.tokens.forEach(token => {
+      if (token.type === 'text') {
+        const textToken = token as Tokens.Text;
+        if (textToken.tokens?.length) {
+          // Process rich text elements from the text tokens
+          textToken.tokens.forEach(child => {
+            if (child.type !== 'image') {
+              const richElement = parsePhrasingContentToRichText(
+                child as Exclude<PhrasingToken, Tokens.Image>,
+              );
+              richTextElements.push(richElement);
+            }
+          });
+        } else {
+          richTextElements.push({
+            type: 'text',
+            text: textToken.text || '',
+          } as RichTextText);
+        }
+      } else if (token.type === 'paragraph') {
+        // Handle paragraph tokens
+        const paragraphToken = token as Tokens.Paragraph;
+        paragraphToken.tokens.forEach(child => {
+          if (child.type !== 'image') {
+            const richElement = parsePhrasingContentToRichText(
+              child as Exclude<PhrasingToken, Tokens.Image>,
+            );
+            richTextElements.push(richElement);
+          }
+        });
+      } else if (token.type === 'list') {
+        // Handle nested lists - first add the current item, then add nested list
+        if (richTextElements.length > 0) {
+          elements.push({
+            type: 'rich_text_list',
+            elements: [
+              {
+                type: 'rich_text_section',
+                elements: richTextElements.slice(),
+              } as RichTextSection,
+            ],
+            style: element.ordered ? 'ordered' : 'bullet',
+            indent: context.indent,
+            border: 0,
+          } as RichTextList);
+
+          // Clear for nested processing
+          richTextElements.length = 0;
+        }
+
+        // Parse nested list with increased indent
+        const nestedListBlock = parseListToRichText(
+          token as Tokens.List,
+          options,
+          {
+            ordered: (token as Tokens.List).ordered,
+            indent: context.indent + 1,
+          },
+        );
+
+        // Add all elements from the nested list that are RichTextList elements
+        nestedListBlock.elements.forEach(element => {
+          if (element.type === 'rich_text_list') {
+            elements.push(element as RichTextList);
+          }
+        });
+        return; // Skip the rest of processing for this item
+      }
+    });
+
+    // Create the list item if we have content
+    if (richTextElements.length > 0) {
+      const listItem: RichTextList = {
+        type: 'rich_text_list',
+        elements: [
+          {
+            type: 'rich_text_section',
+            elements: richTextElements,
+          } as RichTextSection,
+        ],
+        style: element.ordered ? 'ordered' : 'bullet',
+        indent: context.indent,
+        border: 0,
+      } as RichTextList;
+
+      elements.push(listItem);
+    }
+  });
+
+  return richText(elements);
 }
 
 function combineBetweenPipes(texts: String[]): string {
@@ -270,7 +493,7 @@ function parseThematicBreak(): DividerBlock {
 }
 
 function parseHTML(element: Tokens.HTML | Tokens.Tag): KnownBlock[] {
-  const parser = new XMLParser({ ignoreAttributes: false });
+  const parser = new XMLParser({ignoreAttributes: false});
   const res = parser.parse(element.raw);
 
   if (res.img) {

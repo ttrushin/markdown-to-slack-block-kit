@@ -3,6 +3,8 @@ import type {
   HeaderBlock,
   ImageBlock,
   SectionBlock,
+  RichTextBlock,
+  RichTextBlockElement,
 } from '@slack/types';
 
 const MAX_TEXT_LENGTH = 3000;
@@ -50,9 +52,16 @@ export function image(
     alt_text: altText.slice(0, MAX_IMAGE_ALT_TEXT_LENGTH),
     title: title
       ? {
-        type: 'plain_text',
-        text: title.slice(0, MAX_IMAGE_TITLE_LENGTH),
-      }
+          type: 'plain_text',
+          text: title.slice(0, MAX_IMAGE_TITLE_LENGTH),
+        }
       : undefined,
+  };
+}
+
+export function richText(elements: RichTextBlockElement[]): RichTextBlock {
+  return {
+    type: 'rich_text',
+    elements,
   };
 }

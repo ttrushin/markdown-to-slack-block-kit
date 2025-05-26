@@ -20,10 +20,10 @@ import {marked} from 'marked';
  * @param body any Markdown or GFM content
  * @param options options to configure the parser
  */
-export async function markdownToBlocks(
+export function markdownToBlocks(
   body: string,
   options: ParsingOptions = {},
-): Promise<KnownBlock[]> {
+): KnownBlock[] {
   // Slack only wants &, <, and > escaped
   // https://api.slack.com/reference/surfaces/formatting#escaping
   const replacements: Record<string, string> = {
